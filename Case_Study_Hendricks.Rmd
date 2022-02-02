@@ -1,0 +1,551 @@
+---
+title: "Milliman Case Study"
+author: "Warren Hendricks"
+date: "January 18, 2019"
+output: html_document
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+
+setwd("C:/Users/Warren/Documents/Milliman")
+```
+
+```{r, echo = FALSE}
+data <- read.csv("SampleData.csv")
+
+summary(data)
+```
+
+
+5.281% of these annuities were surrendered, so surrender is relatively rare.
+
+The variables AV and BB each have at least one extreme outlier. This could possibly create high-leverage points.
+
+Over 62% of these annuities have Rider C. About 1/4 have Rider A, and about 1/8 have Rider B
+
+I also see three small concerns in this summary: BB has 2 NA values, one of the RiderCode observations is "D", and the minimum age is -10. Since there is only one observation with Rider Code D, I will remove it from the dataset unless Rider Code does not end up being one of my predictors.
+
+
+```{r, echo = FALSE}
+ggplot(data, aes(x = as.factor(SCPeriod))) +
+  geom_bar()
+```
+
+
+It appears about 2/3 of these annuities have a surrender period of 7 years, and 1/3 have a surrender period of 4 years.
+
+I will look at the lowest values of Age, and see if there are anymore values that do not make sense.
+
+
+```{r, echo = FALSE}
+head(sort(data$Age))
+```
+
+
+Luckily, -10 appears to be the only erroneous point in the Age column.
+
+I would rather not arbitrarily delete columns, so I will see if I can use a basic regression model to impute the missing age.
+
+
+```{r, echo = FALSE}
+age_model <- lm(Age ~ . - PolNum, data = data, subset = Age > 0)
+summary(age_model)
+```
+
+
+The R^2 is incredibly low here, so it looks like the other variables are not good predictors of age, so instead I will impute the median age to this value.
+
+
+```{r, echo = FALSE}
+data$Age[which(data$Age == -10)] <- median(data$Age)
+```
+
+
+I will attempt to do the same thing with BB, since they are the only missing values in their respective rows.
+
+
+```{r, echo = FALSE}
+BB_model <- lm(BB ~ . - PolNum, data = data)
+summary(BB_model)
+```
+
+
+This model appears to be a decently good fit for BB, so I will use this to impute the two missing values.
+
+
+```{r, echo = FALSE}
+data$BB[which(is.na(data$BB))] <- predict(BB_model, data[which(is.na(data$BB)),])
+```
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+data2 <- data %>%
+  filter(AV < 4000000)
+
+ggplot(data2, aes(x = AV)) +
+  geom_histogram()
+
+ggplot(data2, aes(x = BB)) +
+  geom_histogram()
+```
+
+
+Removing some of the more extreme values, it's still clear that AV and BB are both heavily right-skewed. Both appear to follow Gamma distributions, but BB looks closer to an exponential distribution.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = Age)) +
+  geom_histogram()
+```
+
+
+Age seems to be very close to normally distributed.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = q)) +
+  geom_histogram(bins = 45)
+```
+
+
+This looks like a series of uniform distributions. One going from 1 to 5, then 6 to 20, and 21 to 45. This may imply that many people get 1 year or 5 year annuities.
+
+
+Now I will add ITM (In-the-moneyness) and SCPhase (Surrender Charge Phase) to my dataset.
+
+
+```{r, echo = FALSE}
+data <- data %>%
+  mutate(ITM = AV/BB) %>%
+  mutate(SCPhase = as.factor(ifelse(q < SCPeriod *4, "IN",
+                          ifelse(q == SCPeriod * 4, "END", "OUT"))))
+```
+
+
+ITM
+```{r, echo = FALSE}
+summary(data$ITM)
+```
+
+
+There is at least one outlier in the ITM column, so I will check the highest values for any others.
+
+
+```{r, echo = FALSE}
+head(sort(desc(data$ITM)))
+```
+
+
+There appears to be one more major outlier here.
+
+
+```{r, echo = FALSE, message = FALSE}
+data2 <- data %>%
+  filter(ITM < 200)
+
+ggplot(data2, aes(x = ITM)) +
+  geom_histogram()
+
+```
+
+
+Removing the two major outliers reveals the pattern of ITM is relatively normal, but there is some visible right-skewness.
+
+
+
+
+SCPhase
+```{r, echo = FALSE}
+summary(data$SCPhase)
+```
+
+
+Most of the annuities are still in the surrender penalty phase.
+
+
+
+
+Now I will look at the relationship between the variables and the Surrender rate.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = as.factor(Surr))) +
+  geom_bar(aes(y = (..count..)/tapply(..count..,..PANEL..,sum)[..PANEL..])) +
+  facet_wrap(~SCPeriod)
+```
+
+
+Annuities with a 7-year surrender penalty have a slightly lower surrender rate than annuities with a 4-year surrender penalty.
+
+
+```{r, echo = FALSE, message = FALSE}
+data2 <- data %>%
+  filter(AV < 4000000)
+
+ggplot(data2, aes(x = AV, y = Surr)) +
+  geom_point() +
+  geom_smooth()
+```
+
+
+The surrender rate decreases as AV increases.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data2, aes(x = BB, y = Surr)) +
+  geom_point() +
+  geom_smooth()
+```
+
+
+The surrender rate also decreases as BB increases in a very similar pattern to AV.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data2, aes(x = ITM, y = Surr)) +
+  geom_point() +
+  geom_smooth()
+```
+
+
+As ITM increases, the probability of surrender seems to increase in a very linear fashion.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = as.factor(Surr))) +
+  geom_bar(aes(y = (..count..)/tapply(..count..,..PANEL..,sum)[..PANEL..])) +
+  facet_wrap(~RiderCode)
+
+data2 <- data %>%
+  filter(RiderCode != "D")
+
+model <- glm(Surr ~ RiderCode, family = "binomial", data = data2)
+summary(model)
+```
+
+
+Visually, it doesn't look like RiderCode has an effect on surrender rate. A simple logistic regression seems to confirm this.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = Age, y = Surr)) +
+  geom_point() +
+  geom_smooth()
+```
+
+
+As age increases, the surrender rate seems to decrease in a very linear fashion.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = q, y = Surr)) +
+  geom_point() +
+  geom_smooth()
+
+q_model <- glm(Surr ~ poly(q, 2) + cos(q), family = "binomial", data = data)
+summary(q_model)
+```
+
+
+Q seems to have a strange relationship to the surrender rate. It looks somewhat cyclical, and there may be a slightly quadratic relationship at play here. A simple logistic regression using q^2 and cos(q) seems to confirm this. I will likely remove cos(q), because it has the highest p-value, and I want to avoid overfitting.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = as.factor(Surr))) +
+  geom_bar(aes(y = (..count..)/tapply(..count..,..PANEL..,sum)[..PANEL..]))+
+  facet_wrap(~SCPhase)
+```
+
+
+Surrender rates differ significantly by surrender charge phase. End has the highest rate, followed by out.
+
+
+Just to be safe, I will check for multicollinearity between the numeric variables.
+
+
+```{r, echo = FALSE}
+numerics <- data %>%
+  select(-c(PolNum, RiderCode, SCPhase))
+
+cor(numerics)
+```
+
+
+AV and BB are strongly correlated. AV also has some significant correlation with ITM, while BB does not. I think it may be more effective to use BB only instead of BB and AV in the model.
+
+
+
+There are a few interaction effects that I think may be important. 
+
+
+The different riders have different withdrawal rates at each age, so the effect of age may change depending on the rider.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data, aes(x = Age, y = Surr)) +
+  geom_smooth()+
+  facet_wrap(~RiderCode)
+
+data2 <- data %>%
+  filter(RiderCode != "D")
+
+age_rider_model <- glm(Surr ~ Age + RiderCode + Age*RiderCode, family = "binomial", data = data2)
+summary(age_rider_model)
+```
+
+
+In the middle chunk of ages where most of the data is, all 3 riders seem to hover around a 5% surrender rate. There may be a slight difference on the tail ends, but it doesn't seem to be significant. Ridercode no longer needs to be included in the model.
+
+
+```{r, include = FALSE}
+data <- data %>%
+  filter(RiderCode != "D")
+
+data2 <- data %>%
+  filter(ITM < 200)
+```
+
+
+Surrender rates appear to increase as ITM increases. However, I don't think this effect will be the same across all surrender charge phases. If someone is still in the surrender phase, it makes sense that their annuity would need to be more in the money to make the surrender charge worth taking.
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data2, aes(x = ITM, y = Surr)) +
+  geom_smooth() +
+  facet_wrap(~SCPhase)
+```
+
+
+As I thought, there is a very clear difference in slope between all three groups. Out and End are relatively similar to each other, but In has a much weaker slope.
+
+
+I think the interaction between Age and ITM is also worth exploring. If an older person's annuity is more in the money, it would make sense if they were more likely to take all of the money at once. 
+
+
+```{r, echo = FALSE, message = FALSE}
+ggplot(data2, aes(x = as.factor(Surr), y = Age*ITM)) +
+  geom_violin()
+```
+
+
+There is a clear upward shift in Age*ITM for the surrender group. It may be minor, but I think it looks significant.
+
+
+Before I start choosing my final model, I am going to check for any influential observations using Cook's Distance.
+
+
+```{r, include = FALSE}
+model <- glm(Surr ~ . - PolNum - AV - RiderCode - q + poly(q,2) + ITM*SCPhase + Age*ITM, family = "binomial", data = data)
+
+cooks_d <- cooks.distance(model)
+```
+
+
+```{r, echo = FALSE, message = FALSE}
+plot(cooks_d)
+```
+
+
+One of these observations has a gigantic Cook's Distance. There may be some other values that are too large as well, so I will look at the 20 largest.
+
+
+```{r, echo = FALSE}
+head(sort(desc(cooks_d)), 20)
+```
+
+
+It looks like observation 64,438 is the only one with an abnormally large Cook's distance, so I will remove it.
+
+
+```{r, echo = FALSE}
+data <- data[-64438,]
+```
+
+
+```{r, echo = FALSE}
+model <- glm(Surr ~ . - PolNum - AV - RiderCode - q + poly(q,2) + ITM*SCPhase + Age*ITM, family = "binomial", data = data)
+
+cooks_d <- cooks.distance(model)
+```
+
+
+```{r, echo = FALSE, message = FALSE}
+plot(cooks_d)
+
+head(sort(desc(cooks_d)), 20)
+```
+
+
+Now there is a new point with a high Cook's Distance, and it's even higher than the original one! Again, there is only one problematic point, so I will remove it.
+
+
+```{r, include = FALSE}
+data <- data[-6930,]
+```
+
+
+```{r, include = FALSE}
+model <- glm(Surr ~ . - PolNum - AV - RiderCode - q + poly(q,2) + ITM*SCPhase + Age*ITM, family = "binomial", data = data)
+
+cooks_d <- cooks.distance(model)
+```
+
+
+
+```{r, echo = FALSE, message = FALSE}
+plot(cooks_d)
+```
+
+
+All of the points now have very low Cook's Distance, so I will proceed.
+
+
+I am going to test my model, which contains BB, Age, q, q^2, ITM, SCPeriod, SCPhase, SCPhase/ITM interaction and Age/ITM interaction against a model chosen from Lasso.
+
+
+```{r, include = FALSE}
+library(caret)
+library(glmnet)
+```
+
+
+```{r, echo = FALSE}
+set.seed(90210)
+
+X <- model.matrix(Surr ~ . -PolNum - RiderCode - q + poly(q,2) + cos(q) + ITM*SCPhase + Age*ITM, data)[,-1]
+
+cv.lasso <- cv.glmnet(X, data$Surr, family = "binomial", alpha = 1)
+
+coef(cv.lasso, cv.lasso$lambda.min)
+```
+
+
+It looks like Lasso picks similar predictors to my model, but it includes AV and removes the Age/ITM interaction effect.
+
+
+```{r, include = FALSE}
+library(e1071)
+library(pscl)
+```
+
+
+First, I will use confusion matrices to compare the predictive power of each model.
+
+
+My model
+```{r, echo = FALSE}
+Train <- createDataPartition(data$Surr, p=0.9, list=FALSE)
+training <- data[ Train, ]
+testing <- data[ -Train, ]
+
+ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
+
+mod_fit <- train(as.factor(Surr) ~ SCPeriod + BB + Age + poly(q, 2) + ITM + SCPhase + SCPhase*ITM + Age*ITM,  data=data, method="glm", family="binomial", trControl = ctrl)
+
+pred = predict(mod_fit, newdata=testing)
+confusionMatrix(data=pred, as.factor(testing$Surr))
+```
+
+
+
+
+Lasso Model
+```{r, echo = FALSE}
+Train <- createDataPartition(data$Surr, p=0.9, list=FALSE)
+training <- data[ Train, ]
+testing <- data[ -Train, ]
+
+ctrl <- trainControl(method = "repeatedcv", number = 10, savePredictions = TRUE)
+
+mod_fit <- train(as.factor(Surr) ~ SCPeriod + BB + Age + poly(q, 2) + ITM + SCPhase + SCPhase*ITM + AV,  data=data, method="glm", family="binomial",
+                trControl = ctrl)
+
+pred = predict(mod_fit, newdata=testing)
+confusionMatrix(data=pred, as.factor(testing$Surr))
+```
+
+```{r, include = FALSE}
+library(ROCR)
+```
+
+
+
+Both of these models seem to have very high sensitivity and very low specificity, which is unusual. This is likely because the default cutoff of 0.5 is ineffective here. The Lasso Model does slightly better on both counts.
+
+I will also look at Pseudo R^2 and the ROC curves
+
+
+Pseudo R^2 for My Model
+```{r, echo = FALSE}
+pR2(model)
+```
+
+
+
+Pseudo R^2 for Lasso Model
+```{r, echo = FALSE}
+model2 <- glm(Surr ~ SCPeriod + BB + Age + poly(q, 2) + ITM + SCPhase + SCPhase*ITM + AV, family = "binomial", data=data)
+
+pR2(model2)
+```
+
+
+The McFadden R^2 statistic for both models is very low (under 0.08), but it is slightly higher for my model. However, the difference is negligible.
+
+
+```{r, echo = FALSE}
+pred <- predict(model, data)
+
+preds <- prediction(pred, data$Surr)
+
+perf <- performance(preds, "tpr", "fpr")
+
+```
+
+```{r, echo = FALSE}
+pred2 <- predict(model2, data)
+
+preds2 <- prediction(pred2, data$Surr)
+
+perf2 <- performance(preds2, "tpr", "fpr")
+
+```
+
+```{r, echo = FALSE}
+plot(perf, col = "blue")
+par(new = TRUE)
+plot(perf2, col = "red")
+
+```
+
+
+The ROC curves for each model are so similar, that it's impossible to visually determine which one is better. I will calculate the AUC for each model.
+
+
+```{r, echo = FALSE}
+auc1 <- performance(preds, measure = "auc")
+auc1 <- auc1@y.values[[1]]
+
+auc2 <- performance(preds2, measure = "auc")
+auc2 <- auc2@y.values[[1]]
+```
+
+
+AUC for My Model
+```{r, echo = FALSE}
+auc1
+```
+
+
+
+AUC for Lasso Model
+```{r, echo = FALSE}
+auc2
+```
+
+
+My model has slightly higher AUC, but the difference is so small that it's negligible. The AUC is around 0.7, which isn't very impressive.
+
+
+Overall, my model appears to be slightly better. However, the improvement is so negligible, it wouldn't matter much which model is used.
