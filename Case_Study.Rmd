@@ -1,14 +1,12 @@
 ---
 title: "Milliman Case Study"
-author: "Warren Hendricks"
+author: "Warren H"
 date: "January 18, 2019"
 output: html_document
 ---
 
 ```{r, include = FALSE}
 library(tidyverse)
-
-setwd("C:/Users/Warren/Documents/Milliman")
 ```
 
 ```{r, echo = FALSE}
